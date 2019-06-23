@@ -1,0 +1,499 @@
+## 2. EXPLAIN PLAN
+---
+### 2.1 EXPLAIN PLAN 이란?
+
+ + Optimizer가 SQL 질의를 받은 후 원하는 결과를 도출 하기 까지의 ***<font color="red">`접근경로(ACCESS PATH)`</font>***를 나열한 것.
+ + 말그대로 앞으로 어떻게 실행될지에 대한 계획.
+
+실행계획 Ex)
+
+    Rows     | Row Source Operation
+    -------------------------------------------------------------------------------
+    8        | SORT GROUP BY
+    132008   |   VIEW
+    132058   |     WINDOW NOSORT
+    132058   |       SORT GROUP BY
+    132058   |         HASH JOIN
+    119205   |           VIEW VW_NSO_1
+    119205   |             HASH UNIQUE
+    119248   |               UNION ALL
+    3        |                 NESTED LOOPS
+    3        |                   REMOTE M0001
+    3        |                   TABLE ACCESS BY INDEX ROWID TB_R0001
+    3        |                     INDEX UNIQUE SCAN TB_R0001_PK
+    61       |                 HASH UNIQUE
+    107      |                   NESTED LOOPS
+    3        |                     NESTED LOOPS
+    3        |                       REMOTE M00001
+    3        |                       TABLE ACCESS BY INDEX ROWID TB_R0001
+    3        |                         INDEX UNIQUE SCAN TB_R0001_PK
+    107      |               REMOTE C0001
+    16603    |                 HASH UNIQUE
+    16603    |                   TABLE ACCESS BY INDEX ROWID TB_R0002
+    1322447  |                     INDEX SKIP SCAN TB_R0002_IDX_12
+    102581   |                 HASH UNIQUE
+    670933   |                   NESTED LOOPS
+    16603    |                     TABLE ACCESS BY ROWID TB_R0002
+    1322447  |                       INDEX SKIP SCAN TB_R0002_IDX_12
+    670933   |                     REMOTE C0001
+    115703   |         TABLE ACCESS BY INDEX ROWID TB_R0003
+    115703   |           INDEX RANGE SCAN TB_R0003_IDX_03
+
+
+#### 2.1.1 접근 경로(ACCESS PATH)의 이해
+위 제시한 실행 계획중 <font color="blue">`SCAN`</font>이라는 단어가 자주 등장한다.
+<font color="blue">`SCAN`</font>이란 말 그대로 데이터를 읽는 작업을 의미.
+또 이 <font color="blue">`SCAN`</font>을 수행 하는 방식을 일컬어 ***<font color="red">`접근 경로(ACCESS PATH)`</font>***라고 한다.
+접근경로는 다음과 같다.
+
+ + ##### FULL TABLE SCAN
+테이블의 전체 데이터를 읽어 조건에 맞는 데이터를 추출 하는 방식
+
+ + ##### ROWID SCAN
+<font color="blue">`ROWID`</font>를 기준으로 데이터를 추출 하는 방식으로 단일 행 접근 방식중엔 가장 빠르다
+
+ + ##### INDEX SCAN
+원하는 데이터를 추출하기 위하여 인덱스를 사용하여 검색 하는 방식
+
+
+ 데이터가 많은 테이블에서 극히 일부의 데이터를 추출해야 하는 경우에는
+ <font color="red">`INDEX SCAN`</font>이 유용한 것이 사실 이지만, 테이블에 있는 대다수의 데이터를 추출해야 하는 경우라면 테이블 전체를 읽는 <font color="red">`FULL TABLE SCAN`</font> 이 더 효과적일 수 있다.
+
+
+
+##### 인덱스 스캔(INDEX SCAN)의 종류와 설명
+
+|TYPE|DESCRIPTION|
+|--:--|:----|
+|**INDEX UNIQUE SCAN**|・<font color="blue">`UNIQUE INDEX`</font>를 이용하여 필요한 데이터 블록을 접근 하는 방식|
+||・**한건 이하의 ROWID**를 반환하는 <font color="blue">`INDEX SCAN`</font> 방식|
+|**INDEX RANGE SCAN**|・인덱스를 이용하여 필요한 데이터 블록을 접근하는 방식 중 가장 일반 적인 형태|
+||・한건 이상의 필요한 데이터가 포함된 일정 범위의 인덱스 블록을 ***오름차순***으로 접근하는 방식|
+||・동일 INDEX KEY 값에 대해서는 ROWID를 기준으로 ***오름차순*** 정렬|
+|**INDEX RANGE SCAN DESCENDING**|・<font color="blue">`INDEX RANGE SCAN`</font>과 동일 방식|
+||・오름차순이 아닌 내림차순으로 인덱스 블록을 접근하는 방식|
+|**INDEX SKIP SCAN**|・결합 인덱스의 선행 컬럼을 건너뛰는 형태로 인덱스 블록에 순차적으로 접근|
+||・결합 인덱스 선행 컬럼의 중복을 제거한 값의 종류가 적을 경우 FULL TABLE SCAN보다 효과적일수 있음|
+|**INDEX FULL SCAN**|・인덱스 리프 블록 전체를 SCAN하는 방식|
+||・단일 블록을 순차적으로 접근하므로, 인덱스 키 순으로 정렬 보장|
+||・병렬 처리 불가능|
+|**INDEX FAST FULL SCAN**|・인덱스 리프 블록 전체를 SCAN 하는 방식|
+||・인덱스 키 순으로 정렬은 보장 불가능|
+||・병렬처리가 가능|
+|**INDEX JOIN**|・두 개 이상의 인덱스를 SCAN한후 ROWID끼리 <font color="blue">`HASH JOIN`</font> 하는 방식|
+||・인덱스 키 순으로 정렬 보장 불가능|
+|**BITMAP INDEX**|・인덱스 키 값에 BITMAP 정보와 각각의 비트 위치 정보를 ROWID로 변환해주는 매핑 기능을 이용하여 블록에 접근 하는 방식|
+||・AND 또는 OR 조건을 처리하기 위해 <font color="blue">`BOOLEAN`</font> 연산을 이용|
+
+
+
+ ##### 접근경로(ACCESS PATH) 선택기준
+
+  ###### FULL TABLE SCAN을 선택하게 되는 경우
+  + 조건절에서 비교한 컬럼에 INDEX가 없는 경우
+  + 조건절에서 비교한 컬럼에 최적화된 INDEX가 있으나, 조건을 만족하는 데이터가 테이블의 많은 양을 차지하여 <font color="blue">`FULL TABLE SCAN`</font>의 비용이 <font color="red">`INDEX SCAN`</font>보다 낮다고 판단한 경우.
+  + 조건절에서 비교한 컬럼에 최적화된 INDEX가 있으나, 테이블 데이터 자체가 적어 <font color="red">`FULL TABLE SCAN`</font>의 비용이 <font color="blue">`INDEX SCAN`</font>보다 적다고 판단된 경우.
+  + 테이블 생성 시 설정한 DEGREE 속성(병렬처리정도) 값이 크게 설정 되어 있는 경우.
+
+
+  ###### ROWID SCAN을 선택하게 되는 경우
+  + 조건절에서 <font color="red">`ROWID`</font>를 직접 명시한 경우
+  + <font color="blue">`INDEX SCAN`</font>을 통해 <font color="red">`ROWID`</font>를 추출 한 후 테이블에 접근 할 경우
+  + 참고로 <font color="red">`ROWID`</font>는 테이블에 저장된 각각의 행이 갖는 주소를 의미하며 16진수로 표현되는 값이다.
+
+
+  ###### 인덱스 스캔(INDEX SCAN)을 선택하는 경우
+  |TYPE|DESCRIPTION|
+  |--:--|:----|
+  |**INDEX UNIQUE SCAN**|<font color="blue">`UNIQUE INDEX`</font>를 구성하는 모든 컬럼이 조건절에 ‘=‘ 비교된 경우|
+  |**INDEX RANGE SCAN**|INDEX UNIQUE SCAN을 제외한 모든 INDEX SCAN에서 사용.|
+  ||UNIQUE 성격의 결합 인덱스의 선두 컬럼이 WHERE 절에서 사용되거나 일반 INDEX 컬럼이 WHERE 절에 존재하는 경우|
+  ||`<`, `>`, `=`, 또는 `와일드 카드 문자(%)`가 조건 값의 뒤에 존재하는 경우 ex) LIKE ‘ABC%'|
+  |**INDEX RANGE SCAN DESCENDING**|<font color="red">`INDEX RANGE SCAN`</font> 수행함과 동시에 <font color="blue">`ORDER BY DESC`</font> 절을 만족하는 경우|
+  |**INDEX SKIP SCAN**|결합 인덱스의 선행 컬럼이 WHERE절에 없는 경우|
+  ||Optimizer가 <font color="red">`INDEX SKIP SCAN`</font>이 <font color="blue">`FULL TABLE SCAN`</font>보다 빠르다고 판단하는 경우|
+  |**INDEX FULL SCAN**|<font color="blue">`ORDER BY / GROUP BY`</font>의 모든 컬럼이 인덱스의 전체 또는 일부로 정의된 경우|
+  ||정렬이 필요한 명령에서 INDEX ENTRY를 순차적으로 읽는 방식으로 처리|
+  ||일반적으로 INDEX SCAN 후 <font color="blue">`TABLE SCAN`</font>이 동반|
+  |**INDEX FAST FULL SCAN**|FULL TABLE SCAN을 하지 않아도 <font color="red">`INDEX FAST FULL SCAN`</font>으로 원하는 데이터 추출이 가능하고 추출된 데이터의 정렬이 불필요한 경우|
+  ||결합 인덱스를 구성하는 컬럼중 최소 한개 이상은 <font color="blue">`NOT NULL`</font> 이여야 함|
+  |**INDEX JOIN**|추출하고자 하는 데이터가 조인하는 인덱스에 모두 포함되어 있고, 추출되는 데이터의 정렬이 필요 없는 경우|
+
+
+
+
+  #### 2.1.2 실행계획 내 주요 OPERATION
+  ***<font color="blue">`접근경로(ACCESS PATH)`</font>***는 실행 계획을 통해 확인 할 수 있다.
+  실행계획(EXPLAIN PLAN) 상의 OPERATION별 옵션은 다음과 같다.
+
+  ##### 실행계획(EXPLAIN PLAN) 상의 OPERATION별 옵션
+  |OPERATION|OPTION|DESCRIPTION|
+  |-:-|-:-|:--|
+  |**AND-EQUAL**|-|・ROWID를 포함한 다수의 집합을 서로 비교하여 ***중복을 제거***하고, 각각의 집합에 모두 존재하는 ROWID만을 추출해내는 OPERATION.<br>・주로 단일 컬럼 인덱스의 접근 경로(ACCESS PATH)에서 사용|
+  |**BITMAP**|CONVERSION|ROWID를 BITMAP 형태로 변환하는 OPERATION을 의미|
+  ||OR|두 개의 BITMAP을 비트 단위의 OR 연산 수행|
+  ||AND|두 개의 BITMAP을 비트 단위의 AND 연산 수행|
+  |**CONNECT BY**|-|CONNECT BY 구문이 사용된 쿼리에서 계층 순서로 데이터 처리 수행|
+  |**CONCATENATION**|-|UNION ALL 구문 사용 시 해당 집합의 합집합 생성|
+  |**COUNT**|-|테이블로부터 추출한 데이터에 대한 COUNT를 수행|
+  |**COUNT**|STOPKEY|테이블로 부터 추출한 데이터에 대해 WHERE절의 ROWNUM 조건을 명시한 수치까지 COUNT수행|
+  |**FILTER**|-|하위 단계에서 반환된 행 중에 조건에 맞는 데이터만 추출하는 OPERATION|
+  |**FIRST ROW**|-|추출 한 행 중에 첫번째 행만 반환|
+  |**FOR UPDATE**|-|FOR UPDATE 구문 사용시 해당 행에 대한 LOCK설정 및 해당 행 반환|
+  |**HASH**|GROUP BY|GROUP BY 구문 사용시 HASH 형태의 GROUP BY 수행|
+  |**HASH JOIN**|-|HASH JOIN을 수행|
+  ||ANTI|HASH(LEFT) ANTI JOIN 수행|
+  ||SEMI|HASH(LEFT) SEMI JOIN 수행|
+  ||RIGHT ANTI|HASH(RIGHT) ANTI JOIN 수행|
+  ||RIGHT SEMI|HASH(RIGHT) SEMI JOIN 수행|
+  ||OUTER|HASH(LEFT) OUTER JOIN 수행|
+  ||RIGHT OUTER|HASH(RIGHT) OUTER JOIN 수행|
+  |**INDEX**|UNIQUE SCAN||
+  ||RANGE SCAN||
+  ||RANGE SCAN DESCENDING||
+  ||FULL SCAN||
+  ||FULL SCAN DESCENDING||
+  ||FAST FULL SCAN||
+  ||SKIP SCAN||
+  |**INTERSECTION**|-|두 집합 간의 교집합을 추출하고 중복 제거|
+  |**MERGE JOIN**|-|MERGE JOIN 수행|
+  ||OUTER|MERGE OUTER JOIN 수행|
+  ||ANTI|MERGE ANTI JOIN 수행|
+  ||SEMI|MERGE SEMI JOIN 수행|
+  ||CARTESIAN|조인 조건이 없는 경우 발생. 각각의 집합이 N, M건인 경우, 조인 결과 건수는 N*M건으로 증가|
+  |**MINUS**|-|첫 번째 집합에서 두 번째 집합에 속한 행을 제거|
+  |**NESTED LOOPS**|-|NESTED LOOP JOIN 수행|
+  ||OUTER|NESTED LOOP OUTER JOIN 수행|
+  |**PARTITION**|-|파티션 접근|
+  ||SINGLE|단일 파티션만 접근|
+  ||ITERATOR|다수의 파티션을 접근|
+  ||ALL|전체 파티션을 접근|
+  ||INLIST|ITERATOR와 유사하나 IN절에 명시된 파티션을 접근|
+  |**REMOTE**|-|DB LINK로 연결된 원격지 데이터베이스 접근|
+  |**SEQUENCE**|-|시퀀스 객체 접근|
+  |**SORT**|AGGREGATE|추출된 행에 대한 그룹핑 결과를 반환|
+  ||UNIQUE|추출된 행을 정렬하여 중복 값을 제거|
+  ||GROUP BY|GROUP BY 구문 사용 시 정렬 형태의 GROUP BY 수행|
+  ||ORDER BY|ORDER BY 구문 사용 시 추출된 행에 대한 정렬 수행|
+  |**TABLE ACCESS**|FULL|
+  ||BY INDEX ROWID|인덱스의 ROWID를 통한 테이블의 데이터 추출|
+  ||BY GLOBAL INDEX ROWID|파티션이 되지 않은 글로벌 인덱스의 ROWID를 통한 테이블의 데이터 추출|
+  ||BY LOCAL INDEX ROWID|파티션이 된 로컬 인덱스의 ROWID를 통한 테이블의 데이터 추출|
+  |**UNION**|-|두 집합의 합집합을 생성, 중복 제거|
+  |**VIEW**|-|뷰나 인라인 뷰를 사용한 데이터 추출|
+
+
+
+  ### 2.2 EXPLAIN PLAN 확인방법
+
+   + ***<font color="red">`EXPLAIN PLAN`</font>***사용방법
+   + ***<font color="red">`AUTOTRACE`</font>***사용방법
+   + ***<font color="red">`SQL_TRACE`</font>***사용방법
+
+
+ #### 2.2.1 EXPALIN PLAN 사용방법
+
+ #### ①사전준비
+   + ORALCE에서는 실행 계획을 <font color="blue">`PLAN_TABLE`</font>이라는 테이블에 실행계획을 생성한다.
+   + 10g 이전 버전의 경우 명령어를 통한 생성 절차를 거쳐야 했으나 10g 이후에는 <font color="blue">`SYS.PLAN_TABLE$`</font> 라는 테이블을 통해 실행 계획을 저장하는 것이 가능해졌다.
+   + 아래는 10g이전 <font color="blue">`PLAN_TABLE`</font> 생성 문
+
+
+      $ORACLE/HOME/rdbms/admin/utlxplan.sql
+
+
+ ##### PLAN_TABLE을 통해 저장되는 정보
+
+ |COLUMN|DESCRIPTION|
+ |:--|:--|
+ |**STATEMENT_ID**|EXPLAIN PLAN명령을 수행할 때 사용자가 정의한 ID|
+ |**PLAN_ID**|데이터베이스 내에서 실행 계획이 갖는 단일 속성 값 |
+ |**TIMESTAMP**|EXPLAIN PLAN을 수행한 날짜 및 시간 정보 |
+ |**REMARKS**|EXPLAIN PLAN을 수행할 때 사용자가 임의로 넣는 주석|
+ |**OPERATION**|SELECT, DELETE, INSERT, UPDATE 쿼리중 하나가 수행될때 단계별 작동 형태를 정의하는 속성. AGGREGATE, AND-EQUALS, CONNECT BY등의 기능 및 작동 표현|
+ |**OPTIONS**|OPERATION의 상세옵션을 설명 |
+ |**OBJECT_NODE**|참조하는 객체의 데이터베이스 링크 이름 |
+ |**OBJECT_OWNER**|테이블 또는 인덱스의 소유주 |
+ |**OBJECT_NAME**|테이블 또는 인덱스의 이름 |
+ |**OBJECT_ALIAS**|SQL 에서 정의된 테이블 또는 뷰의 별칭 |
+ |**OBJECT_INSTANCE**|FROM 절에 기술된 객체에 부여하는 번호 |
+ |**OBJECT_TYPE**|객체의 유형 |
+ |**OPTIMIZER**|옵티마이저 모드 정보 |
+ |**ID**|각 실행 단계의 일련번호 |
+ |**PARENT_ID**|해당하는 ID의 부모 ID |
+ |**COST**|처리 단계별 비용 |
+ |**CARDINALITY**|명령 수행으로 인해 접근하게 될 행 수의 쿼리 최적화 방법에 의한 예측값 |
+ |**BYTES**|명령 수행으로 인해 접근하게 될 바이트 수의 쿼리 최적화 방법에 의한 예측값|
+
+  #### ②EXPLAIN PLAN 수행
+
+  수행하고자 하는 SQL 이 다음과 같다.
+
+    EXPLAIN PLAN                                  <= EXPLAIN PLAN 선언부
+    SET STATEMENT_ID = ‘EP_TEST'                  <= SQL에 임의의 ID부여
+    FOR
+    SELECT E.EMPNO, E.ENAME, D.DEPTNAME
+    FROM EMP E, DEPT D                            <= SQL입력부
+    WHERE E.DEPTNO = D.DEPTNO;
+
+이때 해당 SQL 실행 계획을 저장 하는 것 분 실제 실행 되지는 않는다.
+따라서 SQL을 실행하지 않고 <font color="red">`ACCESS PATH`</font>만 확인하고 싶을때 유용하다.
+
+
+
+  #### ③EXPLAIN PLAN 확인
+
+   ##### PLAN_TABLE을 직접 조회하는 방법
+
+
+    SELECT LPAD(operation, LENGTH(operation) + 2 * ( LEVEL -1 ))
+           || DECODE(id, 0, ‘cost estimate:’ || DEOCDE(position, ‘0’, ’N/A’, position), NULL)
+           || ‘ '
+           || options
+           || DECODE(object_name, NULL, NULL, ‘:’)
+           || RPAD(object_owner, Length(object_name) + 1, ‘, ‘)
+           || object_name
+           || DECODE(object_type, ‘UNIQUE’, ‘(U) ‘, ‘NON_UNIQUE’, ‘(NU)’, NULL)
+           || DECODE(object_instance, NULL, NULL, ‘(‘ ||object_instance|| ‘)’) “Explain Plan"
+    FROM plan_table
+    START WITH id = 0
+          AND STATEMENT_ID = ‘&&id'
+    CONNECT BY PRIOR id = parent_id
+          AND STATEMENT_ID = ‘&&id';
+
+  + 변수 `&&id` 에는 EXPLAIN PLAN 명령 수행 당시 지정한 STATEMENT_ID를 입력.
+  + PLAN_TABLE을 직접 조회하는 방법은 위와 같이 조회 과정이 복잡.
+  + PLAN TABLE 구조도 잘 이해해야 한다는 점에서 선호되지 않는다.
+
+
+  ##### ORACLE에서 제공하는 패키지(DBMS_XPLAN)를 활용
+
+   위 조회 과정이 복잡한 관계로 ORACLE에서는 ***<font color="red">`DBMS_XPLAN PACKAGE`</font>***를 제공함.
+   ***<font color="red">`DBMS_XPLAN`</font>*** 활용을 아래 4가지 뷰에 대한 조회 권한만 있으면 실행 가능하다.
+
+   > 1) V$SESSION
+   > 2) V$SQL_PLAN
+   > 3) V$SQL
+   > 4) V$SQL_PLAN_STATISTICS_ALL
+
+   ***<font color="red">`DBMS_XPLAN`</font>*** 패키지의 <font color="blue">`DISPLAY`</font>함수를 사용하여 PLAN_TABLE에 저장된 실행계획을 검색하는 구문.
+
+
+      SELECT * FROM TABLE(DBMS_XPLAN.DISPLAY(’table_name’, STATEMENT_ID, ‘FORMAT’));
+
+
+  + `table_name`   : 실행계획을 저장하는 테이블 PLAN_TABLE을 입력
+  + `STATEMENT_ID` : 검색하고자 하는 SQL ID를 입력
+    ※NULL을 입력후 조회시, 가장 최근에 실행한 SQL의 실행계획을 조회하여 보여준다.
+
+
+
+###### DBMS_XPLAN 패키지의 구성
+|TYPE|FORMAT|DESCRIPTION|
+|:--|:--|:--|
+|**DISPLAY(예측)**|BASIC|OPERATION ID, OPERATION NAME, OPTION등 가장 기본적인 최소 정보 출력|
+||TYPICAL|기본 설정 값, 실행 계획에서 얻고자 하는 대부분의 정보를 제공.<br> BASIC + ROWS, BYTES, OPTIMIZER COST, PARALLEL, PREDICATE등|
+||SERIAL|TYPICAL 과 동일 정보를 제공하지만 PARALLEL 정보만 제외|
+||ALL|사용자 레벨의 최대한의 정보를 제공 TYPICAL + PROJECTION, ALIAD, REMOTE SQL 등|
+||ADVANCED|ALL + PEEKED_BINDS 등 제공|
+|**DISPLAY_CURSOR(실측)**|ALLSTATS|실제 액세스한 행 수와 수행 시간과 CR(Current Reads), PR(Physical Reads), PW(Physical Writes)정보 제공, 수행된 햇수에 따라 누적된 값 출력됨|
+||ALLSTATS LAST|ALLSTATS와 동일 정보를 제공 하지만 최종 정보만 제공. 누적값 아님|
+||ADVANCED ALLSTATS LAST|DISPLAY_CURSOR 에서 지원하는 모든 정보 제공|
+
+
+
+###### 실제 사용예1 : TYPICAL 설정
+
+    EXPLAIN PLAN
+    FOR
+    SELECT *
+    FROM   t1
+    WHERE  C1 = 1
+       AND C2 = '1234';
+
+    --------
+    SELECT * FROM TABLE( DBMS_XPLAN.DISPLAY( 'PLAN_TABLE', NULL, 'TYPICAL' ) );
+
+
+###### 실제 사용예2 : ALL 설정
+
+    EXPLAIN PLAN
+    FOR
+    SELECT *
+    FROM   t1
+    WHERE  C1 = 1
+    AND C2 = '1234';
+
+    --------
+    SELECT * FROM TABLE( DBMS_XPLAN.DISPLAY( 'PLAN_TABLE', NULL, 'ALL' ) );
+
+
+ #### 2.2.2 AUTOTRACE 사용방법
+
++ 실행계획의 확인, 통계정보의 확인이 가능.
++ <font color="red">`AUTOTRACE`</font> 사용을 위해서는 EXPLAIN PLAN과 마찬가지로 PLAN_TABLE이 필요하며 수행권한도 필요.
+
+
+ #### ①사전준비
+   + ***<font color="blue">`PLAN_TABLE`</font>*** 생성
+   + ***<font color="red">`PLUSTRACE`</font>*** 권한 부여
+    AUTOTRACE 기능 활성화를 위해서는 <font color="red">`PLUSTRACE`</font>라는 권한을 부여 받아야 사용 가능.
+    이 권한은 아래 스크립트를 실행하면 생성된다.
+
+
+    $ORACLE_HOME/sqlplus/admin/plustrace.sql
+
+  만일 롤이 없는 상태에서 PLUSTRACE 권한에 대한  GRANT 명령을 수행 하기 위해서는 SYSDBA 사용자로 로그인 하여 위 스크립트를 실행 후 다시 권한 부여를 받아야 한다.
+
+    SQL> conn /as sysdba
+    SQL>grant plustrace to scott;
+
+
+  #### ②AUTOTRACE 수행
+
+  + ***<font color="red">`AUTOTRACE`</font>*** 사용시 사용가능한 옵션들을 통해 사용자가 원하는 형태의 실행 계획 출력이 가능.
+  + 실행하고자 하는 SQL직전에 다음 명령문을 실행해야 적용 가능.
+
+
+      SET AUTOT[RACE] {OFF | ON | TRACE[ONLY]} [EXP|[LAIN]] [STAT[ISTICS]]
+
+##### 실행 계획의 [STATISTICS] ITEM 및 DESCRIPTION
+|ITEM|DESCRIPTION|
+|:--|:--|
+|**DB BLOCK GETS**|LOGICAL READ의 하나로, CURRENT MODE의 블록을 읽은 개수이다. 해당 세션에서 DML에 의해 변경을 일으킨 블록을 읽을 때 DB_BLOCK_TKPROF 출력 결과에서 CURRENT에 해당하는 값이다.|
+|**CONSISTENT GETS**|LOGICAL READ 의 하나이며, CONSISTENT MODE의 블록을 읽은 개수이다. 메모리 내에 있는 변경 되지 않은 블록을 읽거나, 타 세션에서 변경한 블록이지만 아직 COMMIT을 하지 않은 블록을 읽은 경우가 이에 해당한다.|
+|**PHYSICAL READS**|물리적인 디스크에서 읽은 데이터 블록 개수이다. TKPROF 출력 결과에서 DISK에 해당하는 값이다.|
+
+
+##### AUTOTRACE의 옵션
+  + <font color="red">`SET AUTOTRACE ON`</font>
+    > SQL수행 O, 실행계획출력 O, 실행결과출력 O, 통계정보출력 O
+  + <font color="red">`SET AUTOTRACE ON EXPLAIN`</font>
+    > SQL수행 O, 실행계획출력 O, 실행결과출력 O, 통계정보출력 X
+  + <font color="red">`SET AUTOTRACE ON STATISTICS`</font>
+    > SQL수행 O, 실행계획출력 X, 실행결과출력 O, 통계정보출력 O
+  + <font color="red">`SET AUTOTRACE ON TRACEONLY`</font>
+    > SQL수행 O, 실행계획출력 O, 실행결과출력 X, 통계정보출력 O
+  + <font color="red">`SET AUTOTRACE TRACEONLY EXPLAIN`</font>
+    > SQL수행 X, 실행계획출력 O, 실행결과출력 X, 통계정보출력 X
+  + <font color="red">`SET AUTOTRACE TRACEOLY STATISTICS`</font>
+    > SQL수행 O, 실행계획출력 X, 실행결과출력 X, 통계정보출력 O
+
+
+ #### 2.2.3 SQL_TRACE 사용방법
+
+ ##### (1) SQL TRACE란?
+
+ + <font color="red">`SQL TRACE`</font>는, 실행 계획은 물론 여러 세션에서 수행한 SQL의 통계 정보, 수행 시간, 결과 등을 TRACE로 기록하여 이를 파일 형태로 저장 하는 방법
+ + 확장자는 <font color="blue">`trc`</font>로 저장
+ + 세션 또는 시스템 단위 설정이 가능
+ + 파일변환시, <font color="blue">`TKPROF 유틸리티`</font>를 사용
+ + <font color="blue">`sys=no`</font> 옵션을 통해 시스템 내부적으로 수행되는 SQL에 대해서는 변환을 제외해 준다
+
+
+    tkprof trace_file.trc new_file.txt sys=no
+
+ ##### (2) SQL TRACE 파일 생성 방법
+
+ + 파라미터 설정
+ + 이벤트 설정
+ + 패키지를 이용한 설정
+
+
+  각 방법을 사용전 파라미터 설정이 선행되어야 하며 TRACE파일 생성에 필요한 권한도 필요하다.
+
+  ##### 파라미터
+  > **TIMED_STATISTICS = TRUE**
+    : 시간과 관련된 통계정보 사용 여부. 반드시 TRUE로 지정
+  > **MAX_DUMPFILE_SIZE = 크기/UNLIMITED**
+    : 생성될 TRACE파일에 허용할 최대 사이즈를 설정 하는 파라미터
+  > **USER_DUMP_DEST = TRACE파일의 생성위치**
+    : TRACE 파일을 생성할 경로를 지정하는 파라미터 (파라미터 지정시 해당 경로에 대한 읽기 쓰지 권한 여부 확인 필요)
+
+  ##### 권한
+  > **USER_DUMPDEST에 설정한 경로에 대한 읽기 및 쓰기 권한**
+
+
+
+  ### 2.3 EXPLAIN PLAN 해석
+
+  #### 2.3.1 EXPLAIN PLAN 읽는 순서
+
+  ##### 규칙
+   + 위에서 아래로 일어 내려가면서 제일 먼저 읽을 스텝을 찾는다.
+   + 내려가는 과정에서 같은 들여쓰기가 존재하면, 무조건 위에서 아래 순으로 읽는다.
+   + 읽고자 하는 스텝보다 들여쓰기가 된 하위 스텝이 존재한다면, 가장 안쪽으로 들여쓰기 된 스텝을 시작으로 하여 한 단계씩 상위 스텝으로 읽어 나온다.
+
+
+      --------------------------------------------------------------------------------
+      |ID | Operation                     | Name    | Rows  | Bytes | Cost  | Time  |
+      --------------------------------------------------------------------------------
+      | 0 | SELECT STATEMENT              |         |       |       |       |       |
+      | 1 |  NESTED LOOPS                 |         |       |       |       |       |
+      | 2 |   TABLE ACCESS BY INDEX ROWID | EMP     |       |       |       |       |
+      | 3 |    INDEX UNIQUE SCAN          | PK_EMP  |       |       |       |       |
+      | 4 |   TABLE ACCESS BY INDEX ROWID | DEPT    |       |       |       |       |
+      | 5 |    INDEX UNIQUE SCAN          | PK_DEPT |       |       |       |       |
+      --------------------------------------------------------------------------------
+
+  > **읽는 순서 : 3 → 2 → 5 → 4 → 1 → 0**
+
+
+      --------------------------------------------------------------------------------
+      |ID | Operation                     | Name    | Rows  | Bytes | Cost  | Time  |
+      --------------------------------------------------------------------------------
+      | 0 | SELECT STATEMENT              |         |       |       |       |       |
+      | 1 |  NESTED LOOPS                 |         |       |       |       |       |
+      | 2 |   NESTED LOOPS                |         |       |       |       |       |
+      | 3 |    TABLE ACCESS FULL          | EMP     |       |       |       |       |
+      | 4 |    INDEX UNIQUE SCAN          | PK_DEPT |       |       |       |       |
+      | 5 |   TABLE ACCESS BY INDEX ROWID | DEPT    |       |       |       |       |
+      --------------------------------------------------------------------------------
+
+  > **읽는 순서 : 3 → 4 → 2 → 5 → 1 → 0**
+
+
+
+  #### 2.3.2 예제를 통한 EXPLAIN PLAN 분석
+
+    SELECT /*+ LEADING(E) */ *
+    FROM   employees E,
+           jobs J,
+           departments D
+    WHERE  E.job_id = J.job_id
+           AND E.department_id = D.department_id
+           AND E.employee_id < 103;
+
+    -----------------------------------------------------------------------------------------
+    |ID | Operation                         | Name          | Rows  | Bytes | Cost  | Time  |
+    -----------------------------------------------------------------------------------------
+    | 0 | SELECT STATEMENT                  |               |    3  |       |       |       |
+    | 1 |  NESTED LOOPS                     |               |       |       |       |       |
+    | 2 |   NESTED LOOPS                    |               |    3  |       |       |       |
+    | 3 |    NESTED LOOPS                   |               |    3  |       |       |       |
+    | 4 |     TABLE ACCESS BY INDEX ROWID   | EMPLOYEES     |    3  |       |       |       |
+    |*5 |      INDEX RANGE SCAN             | EMP_EMP_ID_PK |    3  |       |       |       |
+    | 6 |     TABLE ACCESS BY INDEX ROWID   | JOBS          |    1  |       |       |       |
+    |*7 |      INDEX UNIQUE SCAN            | JOB_ID_PK     |    1  |       |       |       |
+    |*8 |    INDEX UNIQUE SCAN              | DEPT_ID_PK    |    1  |       |       |       |
+    | 9 |   TABLE ACCESS BY INDEX ROWID     | DEPARTMENTS   |    1  |       |       |       |
+    -----------------------------------------------------------------------------------------
+
+    Predicate Information (identified by operation id):
+    ---------------------------------------------------------
+        5 - access("E"."EMPLOYEE_ID"<103)
+        7 - access("E"."JOB_ID"="J"."JOB_ID")
+        8 - access("E"."DEPARTMENT_ID"="D"."DEPARTMENT_ID")
+
+  > **읽는 순서 : 5 → 4 → 7 → 6 → 3 → 8 → 2 → 9 → 1 → 0**
+
+
+  |ID|DESCRIPTION|
+  |--|--|
+  |ID 5|E.employee_id<103을 만족하는 데이터를 찾기 위해 EMP_EMP_ID_PK인덱스를 사용하여 INDEX_RANGE_SCAN을 하면서 조건을 만족하는 인덱스 블록과 키 값을 검색한 결과, 해당 스텝에서 3건의 행을 반환|
+  |ID 4|ID 5에서 읽은 ROWID를 기반으로 employees테이블에 접근하여, 조건에 부합하는 3건을 반환|
+  |ID 7|ID 4에서 반환된 행의 JOB_ID컬럼값을 가지고 와서 일치하는 값을 JOB_ID_PK라는 인덱스에서 INDEX_UNIQUE_SCAN방식으로 검색한 결과 1건의 ROWID를 반환|
+  |ID 6|ID 7에서 반환된 1건의 ROWID 값을 가지고 일치하는 데이터를 JOBS테이블에서 TABLE ACCESS BY INDEX ROWID방식으로 검색한 결과, 1건의 행을 반환|
+  |ID 3|위의 과정을 거쳐 ID 4 와 ID 6에서 검색된 데이터들을 조인하는데, NESTED LOOP JOIN 방식이므로 ID 4에서 반환한 행의 수 만큼 반복하여 조인한 결과, 조건을 만족하는 3건 반환 |
+  |ID 8|2 → 9 → 1도 이와 같은 규칙에 맞춰 처리|
+  |ID 0|모든 과정을 처리한 후 조건을 만족하는 3건 반환|
